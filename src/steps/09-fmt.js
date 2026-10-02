@@ -54,8 +54,12 @@ function tidy(context, counters) {
   counters.unwanted += unwanted;
   changed += unwanted;
   context.resolve();
-  changed += simplify.mergeDecls(context.chunk, counters);
+  // idioms/copies leave empty do/end and bare local; strip before next round
+  const husks = declare.dropEmpty(context.chunk);
+  counters.husks = (counters.husks || 0) + husks;
+  changed += husks;
   context.resolve();
+  changed += simplify.mergeDecls(context.chunk, counters);
   return changed;
 }
 
@@ -63,7 +67,7 @@ function run(context) {
   const counters = { eliminated: 0, merged: 0, idioms: 0, unwanted: 0 };
   for (const [name] of PASSES) counters[name] = 0;
   context.resolve();
-  for (let round = 0; round < ROUNDS; round += 1) {
+    for (let round = 0; round < ROUNDS; round += 1) {
     let changed = 0;
     for (const [name, pass] of PASSES) {
       const moved = pass(context.chunk);
@@ -74,6 +78,12 @@ function run(context) {
     }
     changed += tidy(context, counters);
     if (!changed) break;
+  }
+  // final sweep: last tidy may still insert tombstones after flatten
+  const leftover = declare.dropEmpty(context.chunk);
+  if (leftover) {
+    counters.husks = (counters.husks || 0) + leftover;
+    context.resolve();
   }
   const moves = PASSES.reduce((total, [name]) => total + counters[name], 0);
   if (moves) {

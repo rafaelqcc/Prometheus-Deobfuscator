@@ -446,19 +446,36 @@ function fill(chunk) {
 
 function dropEmpty(chunk) {
   let dropped = 0;
-  walk(chunk, {
-    enter(node) {
-      if (node.kind !== Kind.Block) return undefined;
-      const kept = node.statements.filter((statement) => {
-        const empty = statement.kind === Kind.LocalDeclaration
-          && !(statement.names || []).length;
-        if (empty) dropped += 1;
-        return !empty;
-      });
-      node.statements = kept;
-      return undefined;
-    },
-  });
+  // Nested empty do/end may appear after an outer one is removed.
+  for (let round = 0; round < 8; round += 1) {
+    let moved = 0;
+    walk(chunk, {
+      enter(node) {
+        if (node.kind !== Kind.Block) return undefined;
+        const kept = node.statements.filter((statement) => {
+          // bare `local` after names were spliced out
+          if (statement.kind === Kind.LocalDeclaration
+            && !(statement.names || []).length) {
+            moved += 1;
+            return false;
+          }
+          // empty `do end` tombstones from idioms/copies/callbacks
+          if (statement.kind === Kind.Do) {
+            const body = (statement.body && statement.body.statements) || [];
+            if (body.length === 0) {
+              moved += 1;
+              return false;
+            }
+          }
+          return true;
+        });
+        node.statements = kept;
+        return undefined;
+      },
+    });
+    dropped += moved;
+    if (!moved) break;
+  }
   return dropped;
 }
 
